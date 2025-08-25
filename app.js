@@ -1,14 +1,20 @@
 // UI Management
+
+let audioCtx, ws, processor, source;
+
 class UI {
     static elements = {
         startButton: document.getElementById('startButton'),
         stopButton: document.getElementById('stopButton'),
         clearButton: document.getElementById('clearButton'),
-        voiceSelect: document.getElementById('voiceSelect'),
+        panel : document.getElementById('scriptPanel'),
+        panelButton : document.getElementById('togglePanel'),
         transcript: document.getElementById('transcript'),
         status: document.getElementById('status'),
         error: document.getElementById('error'),
         imageContainer: document.getElementById('imageContainer'),
+        localView : document.getElementById('localView'),
+        remoteView : document.getElementById('remoteView'),
         contentWrapper: document.querySelector('.content-wrapper')
     };
 
@@ -25,16 +31,46 @@ class UI {
         this.elements.error.style.display = 'none';
     }
 
-    static updateTranscript(message, type = 'assistant') {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${type}-message`;
-        messageDiv.textContent = message;
-        
+    static updateTranscript(message, isLocalRes) {
+        const bubble = document.createElement("div");
+        bubble.classList.add("chat-bubble");
+        const bubbleDirection = isLocalRes ? "local" : "remote";
+        bubble.classList.add(bubbleDirection);
+        bubble.textContent = message;
+
+        // 클릭 이벤트
+        bubble.addEventListener("click", () => {
+            console.log(`Clicked sentence: ${message}`);
+            bubble.classList.toggle("active"); // 선택 상태 토글
+        });
+
         if (this.elements.transcript.firstChild) {
-            this.elements.transcript.insertBefore(messageDiv, this.elements.transcript.firstChild);
+            this.elements.transcript.insertBefore(bubble, this.elements.transcript.firstChild);
         } else {
-            this.elements.transcript.appendChild(messageDiv);
+            this.elements.transcript.appendChild(bubble);
         }
+    }
+
+    static renderTranscript() {
+        //const transcriptDiv = document.getElementById("transcript");
+        const text = this.elements.transcript.innerText ||this.elements.transcript.textContent;
+        this.elements.transcript.innerHTML = ""; // 기존 내용 비우기
+        // 단어별로 쪼개기
+        const words = text.split(" ");
+
+        words.forEach(word => {
+            const span = document.createElement("span");
+            span.textContent = word + " ";
+            span.classList.add("word");
+
+            // 클릭 이벤트
+            span.addEventListener("click", () => {
+                alert(`Clicked: ${word}`);
+
+            });
+
+            this.elements.transcript.appendChild(span);
+        });
     }
 
     static clearConversation() {
@@ -106,10 +142,6 @@ class UI {
         imageContainer.innerHTML = '';
         imageContainer.appendChild(imageWrapper);
     }
-
-    static updateVoiceSelector(enabled) {
-        this.elements.voiceSelect.disabled = !enabled;
-    }
 }
 
 // Error Handler
@@ -122,10 +154,20 @@ class ErrorHandler {
 
 // Message Handler
 class MessageHandler {
-    static async handleTranscript(message) {
-        const transcript = message.response?.output?.[0]?.content?.[0]?.transcript;
+    static async handleTranscript(message, isLocalRes) {
+        const transcript = message.transcription.text//message.response?.output?.[0]?.content?.[0]?.transcript;
         if (transcript) {
-            UI.updateTranscript(transcript);
+            UI.updateTranscript(transcript, isLocalRes);
+        }
+    }
+
+    static async handelDeveloperFunction(output){
+        try {
+            const args = JSON.parse(output.arguments);
+            const response = await fetch(`${CONFIG.API_ENDPOINTS.weather}/${encodeURIComponent(args.location)}`);
+            const data = await response.json();
+        }catch (e) {
+            
         }
     }
 
@@ -265,106 +307,151 @@ ${CONFIG.WEATHER_ICONS[day.weather_code] || '🌡️'} High: ${day.max_temp}°${
 class WebRTCManager {
     constructor(app) {
         this.peerConnection = null;
-        this.audioStream = null;
-        this.dataChannel = null;
+        this.localStream = null;
+        this.remoteStream = null;
+        this.localSTT = new STTHandler(true);
+        //this.remoteSTT = new STTHandler(this, false);
+        //Basic Channel
+        this.signaling = new BroadcastChannel('webrtc');
+        this.signaling.onmessage = e => {
+            console.log("☎️ signalMessage : ", e.data)
+            if (!this.localStream) {
+                console.log('not ready yet');
+                return;
+            }
+            switch (e.data.type) {
+                case 'offer':
+                    this.handleOffer(e.data);
+                    break;
+                case 'answer':
+                    this.handleAnswer(e.data);
+                    break;
+                case 'candidate':
+                    this.handleCandidate(e.data);
+                    break;
+                case 'ready':
+                    // A second tab joined. This tab will initiate a call unless in a call already.
+                    if (this.peerConnection) {
+                        console.log('already in call, ignoring');
+                        return;
+                    }
+                    this.makeCall();
+                    break;
+                case 'bye':
+                    if (this.peerConnection) {
+                        this.hangup();
+                    }
+                    break;
+                default:
+                    console.log('unhandled', e);
+                    break;
+            }
+        };
         this.app = app;  // Store reference to the app
     }
-    
 
-    async setupAudio() {
-        const audioEl = document.createElement('audio');
-        audioEl.autoplay = true;
-        this.peerConnection.ontrack = e => audioEl.srcObject = e.streams[0];
-        
-        this.audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        this.peerConnection.addTrack(this.audioStream.getTracks()[0]);
-    }
-
-    setupDataChannel() {
-        this.dataChannel = this.peerConnection.createDataChannel('oai-events');
-        this.dataChannel.onopen = () => this.onDataChannelOpen();
-        this.dataChannel.addEventListener('message', (event) => this.handleMessage(event));
-    }
-
-    async handleMessage(event) {
-        try {
-            const message = JSON.parse(event.data);
-            console.log('Received message:', message);
-            
-            if (message.type === 'response.done') {
-                await MessageHandler.handleTranscript(message);
-                const output = message.response?.output?.[0];
-                if (output?.type === 'function_call' && output?.call_id) {
-                    let result;
-                    if (output.name === 'get_weather') {
-                        result = await MessageHandler.handleWeatherFunction(output);
-                    } else if (output.name === 'search_web') {
-                        result = await MessageHandler.handleSearchFunction(output);
-                    }
-                    
-                    if (result) {
-                        this.sendFunctionOutput(output.call_id, result);
-                        this.sendResponseCreate();
-                    }
-                }
-            }
-        } catch (error) {
-            ErrorHandler.handle(error, 'Message Processing');
+    async setupLocal() {
+        this.localStream = await navigator.mediaDevices.getUserMedia({ audio: {
+            echoCancellation: false,
+            noiseSuppression: true,
+            voiceIsolation: false,
+            autoGainControl: false
+        }, video: true});
+        //this.peerConnection.addTrack(this.localStream()[0]);
+        if (this.localStream) {
+            STTHandler.handleTranscript(this.localStream, true);
+            UI.elements.localView.srcObject = this.localStream;
         }
     }
 
-    sendMessage(message) {
-        if (this.dataChannel?.readyState === 'open') {
-            this.dataChannel.send(JSON.stringify(message));
-            console.log('Sent message:', message);
+    async createPeerConnection(){
+        this.peerConnection = new RTCPeerConnection();
+        this.peerConnection.onicecandidate = e => {
+            if (e.candidate) {
+                const message = {
+                    type: 'candidate',
+                    candidate: e.candidate.candidate,
+                    sdpMid: e.candidate.sdpMid,
+                    sdpMLineIndex: e.candidate.sdpMLineIndex
+                };
+                this.signaling.postMessage(message);
+            }else{
+                console.log("☎️ candidates? ",e)
+            }
+        };
+        this.peerConnection.ontrack = async e => {
+            this.remoteStream = e.streams[0];
+            console.log("remote stream!")
+            if(this.remoteStream) {
+                STTHandler.handleTranscript(this.remoteStream, false);
+                UI.elements.remoteView.srcObject = this.remoteStream;
+            }
         }
+
+        if(this.localStream)
+            this.localStream.getTracks().forEach(track => this.peerConnection.addTrack(track, this.localStream));
     }
 
-    sendSessionUpdate() {
-        this.sendMessage({
-            type: "session.update",
-            session: {
-                voice: this.app.currentVoice,
-                tools: CONFIG.TOOLS,
-                tool_choice: "auto"
-            }
-        });
+    start(){
+        this.signaling.postMessage({type: 'ready'});
     }
 
-    sendInitialMessage() {
-        this.sendMessage({
-            type: 'conversation.item.create',
-            previous_item_id: null,
-            item: {
-                id: 'msg_' + Date.now(),
-                type: 'message',
-                role: 'user',
-                content: [{
-                    type: 'input_text',
-                    text: CONFIG.INITIAL_MESSAGE.text
-                }]
-            }
-        });
+    stop(){
+        this.signaling.postMessage({type: 'bye'});
     }
 
-    sendFunctionOutput(callId, data) {
-        this.sendMessage({
-            type: 'conversation.item.create',
-            item: {
-                type: 'function_call_output',
-                call_id: callId,
-                output: JSON.stringify(data)
-            }
-        });
+    async makeCall() {
+        console.log("☎️ makeCall")
+        await this.createPeerConnection();
+        console.log("☎️ createOffer")
+        const offer = await this.peerConnection.createOffer();
+        this.signaling.postMessage({type: 'offer', sdp: offer.sdp});
+        await this.peerConnection.setLocalDescription(offer);
     }
 
-    sendResponseCreate() {
-        this.sendMessage({ type: 'response.create' });
+    async hangup() {
+        if (this.peerConnection) {
+            this.peerConnection.close();
+            this.peerConnection = null;
+        }
+        this.localStream.getTracks().forEach(track => track.stop());
+        this.localStream = null;
+        STTHandler.stop();
+    };
+
+    async handleOffer(offer) {
+        if (this.peerConnection) {
+            console.error('existing peerconnection');
+            return;
+        }
+        await this.createPeerConnection();
+        console.log("☎️ handleAnswer")
+        await this.peerConnection.setRemoteDescription(offer);
+
+        const answer = await this.peerConnection.createAnswer();
+        this.signaling.postMessage({type: 'answer', sdp: answer.sdp});
+        await this.peerConnection.setLocalDescription(answer);
     }
 
-    onDataChannelOpen() {
-        this.sendSessionUpdate();
-        this.sendInitialMessage();
+    async handleAnswer(answer) {
+        if (!this.peerConnection) {
+            console.error('no peerconnection');
+            return;
+        }
+        console.log("☎️ handleAnswer")
+        await this.peerConnection.setRemoteDescription(answer);
+    }
+
+    async handleCandidate(candidate) {
+        if (!this.peerConnection) {
+            console.error('no peerconnection');
+            return;
+        }
+        if (!candidate.candidate) {
+            await this.peerConnection.addIceCandidate(null);
+        } else {
+            await this.peerConnection.addIceCandidate(candidate);
+        }
     }
 
     cleanup() {
@@ -380,6 +467,119 @@ class WebRTCManager {
             this.dataChannel.close();
             this.dataChannel = null;
         }
+        STTHandler.stop();
+    }
+}
+
+
+class STTHandler {
+    constructor() {
+        //import websocket
+        ws = new WebSocket(`ws://localhost:8888/ws/stt`);
+        ws.binaryType = 'arraybuffer';
+        ws.onopen = () => {
+            // 첫 메시지: 설정 전송
+            // ws.send(JSON.stringify({
+            //     language: 'ko-KR',
+            //     sample_rate: 16000,
+            //     interim_results: true
+            // }));
+        }
+        ws.onmessage = async (ev) => {
+            try {
+                const data = JSON.parse(ev.data);
+                //const isLocalRes = data.islocal;
+                const res_type = data.responseType[0];
+                if (res_type == "transcription") {
+                    // 기본 정보 출력
+                    const text = data.transcription.text
+                    if(text != "")
+                        console.log('stt text: ', text, 'isLocal? : ')//,isLocalRes)
+                        await MessageHandler.handleTranscript(data,true);
+                }
+            } catch {
+                // 텍스트 외 바이너리 응답은 없음
+            }
+        };
+        ws.onclose = () => {
+            document.getElementById('status').textContent = 'Status: closed';
+        };
+    }
+
+    static async handleTranscript(stream, isLocal) {
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+
+            // 마이크 스트림을 AudioContext에 연결
+            source = audioCtx.createMediaStreamSource(stream);
+
+            // ScriptProcessorNode 생성 (buffer size: 16384, mono: 1) 32000 Byte
+            processor = audioCtx.createScriptProcessor(16384, 1, 1);
+
+            // 오디오 데이터가 들어올 때마다 호출됨
+            processor.onaudioprocess = (e) => {
+                const inputData = e.inputBuffer.getChannelData(0); // float32 PCM
+
+                //Float32Array -> Int16Array 변환 (STT 서버용)
+                const int16Data = floatTo16BitPCM(inputData);
+
+                function floatTo16BitPCM(float32Array) {
+                    const buffer = new ArrayBuffer(float32Array.length * 2);
+                    const view = new DataView(buffer);
+                    let offset = 0;
+                    for (let i = 0; i < float32Array.length; i++, offset += 2) {
+                        let s = Math.max(-1, Math.min(1, float32Array[i]));
+                        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+                    }
+                    return buffer;
+                }
+
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    // ws.send(JSON.stringify({
+                    //     isLocal: isLocal})
+                    // )
+                    ws.send(int16Data); //4096 samples, 16K, 16-int pcm  / 320 KB
+                    //console.log("pcm input byteLen : ", int16Data.byteLength)
+                }
+            };
+            // Audio Graph 연결
+            source.connect(processor);
+            processor.connect(audioCtx.destination); // 출력 연결 (필수)
+        } catch (e) {
+            console.log('🚨', e)
+        }
+    }
+
+    async handleMessage(event) {
+        try {
+            const message = JSON.parse(event.data);
+            console.log('Received message:', message);
+
+            // if (message.type === 'response.done') {
+            //     await MessageHandler.handleTranscript(message, this.isLocalRes);
+            //     const output = message.response?.output?.[0];
+            //     if (output?.type === 'function_call' && output?.call_id) {
+            //         let result;
+            //         if (output.name === 'get_weather') {
+            //             result = await MessageHandler.handleWeatherFunction(output);
+            //         } else if (output.name === 'search_web') {
+            //             result = await MessageHandler.handleSearchFunction(output);
+            //         } else if (output.name === 'get_developInfo'){
+            //             result = await MessageHandler.handelDeveloperFunction(output);
+            //         }
+            //     }
+            // }
+        } catch (error) {
+            ErrorHandler.handle(error, 'Message Processing');
+        }
+    }
+
+    static stop(){
+        ws.close(1000, "user stopped streaming");
+        // processor.disconnect();
+        // source.disconnect();
+        // processor = null;
+        // source = null;
     }
 }
 
@@ -395,78 +595,27 @@ class App {
         UI.elements.startButton.addEventListener('click', () => this.init());
         UI.elements.stopButton.addEventListener('click', () => this.stop());
         UI.elements.clearButton.addEventListener('click', () => UI.clearConversation());
-        UI.elements.voiceSelect.addEventListener('change', (e) => {
-            if (!this.webrtc) {
-                this.currentVoice = e.target.value;
-            } else {
-                e.target.value = this.currentVoice;
-            }
-        });
+        UI.elements.panelButton.addEventListener('click', () => UI.elements.panel.classList.toggle("open"));
         document.addEventListener('DOMContentLoaded', () => {
             UI.updateStatus('Ready to start');
-            UI.elements.voiceSelect.value = this.currentVoice;
         });
     }
 
     async init() {
         UI.elements.startButton.disabled = true;
-        UI.updateVoiceSelector(false);
         
         try {
             UI.updateStatus('Initializing...');
-            
-            const tokenResponse = await fetch(`${CONFIG.API_ENDPOINTS.session}?voice=${this.currentVoice}`);
-            if (!tokenResponse.ok) {
-                throw new Error('Could not establish session');
-            }
-
-            const data = await tokenResponse.json();
-            if (!data.client_secret?.value) {
-                throw new Error('Could not establish session');
-            }
-
-            const EPHEMERAL_KEY = data.client_secret.value;
 
             this.webrtc = new WebRTCManager(this);
-            this.webrtc.peerConnection = new RTCPeerConnection();
-            await this.webrtc.setupAudio();
-            this.webrtc.setupDataChannel();
-
-            const offer = await this.webrtc.peerConnection.createOffer();
-            await this.webrtc.peerConnection.setLocalDescription(offer);
-
-            const sdpResponse = await fetch(`${CONFIG.API_ENDPOINTS.realtime}?model=${CONFIG.MODEL}`, {
-                method: 'POST',
-                body: offer.sdp,
-                headers: {
-                    Authorization: `Bearer ${EPHEMERAL_KEY}`,
-                    'Content-Type': 'application/sdp'
-                },
-            });
-            
-            if (!sdpResponse.ok) {
-                throw new Error('Could not establish connection');
-            }
-
-            const sdpText = await sdpResponse.text();
-            if (!sdpText) {
-                throw new Error('Could not establish connection');
-            }
-
-            const answer = {
-                type: 'answer',
-                sdp: sdpText,
-            };
-            await this.webrtc.peerConnection.setRemoteDescription(answer);
-
+            await this.webrtc.setupLocal();
+            await this.webrtc.start();
             UI.updateStatus('Connected');
             UI.updateButtons(true);
-            UI.updateVoiceSelector(true);
             UI.hideError();
 
         } catch (error) {
             UI.updateButtons(false);
-            UI.updateVoiceSelector(true);
             ErrorHandler.handle(error, 'Initialization');
             UI.updateStatus('Failed to connect');
         }
@@ -474,11 +623,11 @@ class App {
 
     stop() {
         if (this.webrtc) {
+            this.webrtc.stop();
             this.webrtc.cleanup();
             this.webrtc = null;
         }
         UI.updateButtons(false);
-        UI.updateVoiceSelector(true);
         UI.updateStatus('Ready to start');
     }
 }

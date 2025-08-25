@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenAI Real-time Audio Demo</title>
+    <title>MVP Demo</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
@@ -23,45 +23,36 @@
                           stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
             </div>
-            <h1>OpenAI Realtime Audio Demo</h1>
+            <h1>MVP Demo</h1>
+        </div>
+
+        <div class="grid" id="videoGrid">
+            <div class="video-cell" style="position: relative">
+                <video id="localView" autoplay playsinline></video>
+                <div class="name-overlay">A</div>
+            </div>
+            <div class="video-cell" style="position: relative">
+                <video id="remoteView" autoplay playsinline></video>
+                <div class="name-overlay">B</div>
+            </div>
         </div>
         
         <div class="controls">
             <button id="startButton">Start</button>
             <button id="stopButton" disabled>Stop</button>
-            <button id="clearButton">Clear</button>
-            <select id="voiceSelect" class="voice-select">
-                <option value="alloy">Alloy</option>
-                <option value="ash">Ash</option>
-                <option value="ballad">Ballad</option>
-                <option value="coral">Coral</option>
-                <option value="echo" selected>Echo</option>
-                <option value="sage">Sage</option>
-                <option value="shimmer">Shimmer</option>
-                <option value="verse">Verse</option>
-            </select>
-        </div>
-
-        <div class="content-wrapper">
-            <div class="transcript-container">
-                <div id="transcript" class="transcript">
-                    <!-- Conversation content -->
-                </div>
-            </div>
-            <div class="side-container">
-                <div class="image-container" id="imageContainer">
-                    <!-- Image placeholder for testing -->
-                    <div class="image-placeholder">Image will appear here</div>
-                </div>
-                <div id="map" class="map-container">
-                    <!-- Map placeholder for testing -->
-                    <div class="map-placeholder">Map will appear here</div>
-                </div>
-            </div>
+            <button id="clearButton">Leave</button>
+            <button class="control-btn btn-panel" id="togglePanel">Script</button>
         </div>
 
         <div id="status" class="status">Ready to start</div>
         <div id="error" class="error"></div>
+    </div>
+
+    <div class="side-panel" id="scriptPanel">
+        <h3>스크립트</h3>
+        <div id="transcript">
+            <p>실시간 전사 텍스트가 여기에 표시됩니다...</p>
+        </div>
     </div>
 
     <script src="config.js"></script>

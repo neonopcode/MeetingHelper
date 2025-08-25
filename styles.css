@@ -21,6 +21,8 @@ body {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
+    display: flex;
+    flex-direction: column;
 }
 
 .header {
@@ -356,4 +358,109 @@ h1 {
 
 .forecast-content.expanded {
     display: block;
-} 
+}
+
+.grid {
+    flex: 1;
+    display: grid;
+    gap: 10px;
+    padding: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+.video-cell
+{
+    position: relative;
+    background: #1f2937;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    box-shadow: 0 6px 15px rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.video-cell video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.name-overlay {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    background: rgba(0,0,0,0.6);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 14px;
+}
+.side-panel {
+    width: 0;
+    transition: width 0.3s ease;
+    overflow: hidden;
+    padding: 0;
+}
+.side-panel.open {
+    width: 300px;
+    padding: 10px;
+}
+
+.word {
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+}
+.word:hover {
+    background-color: #f0f0f0;
+}
+.word.active {
+    background-color: yellow;
+}
+
+/* 기본 말풍선 */
+.chat-bubble {
+    position: relative;
+    padding: 10px 16px;
+    border-radius: 16px;
+    max-width: 75%;
+    font-size: 15px;
+    line-height: 1.4;
+}
+
+/* 유저 메시지 (오른쪽) */
+.chat-bubble.local {
+    align-self: flex-end;
+    background: #90caf9;
+    color: white;
+    border-bottom-right-radius: 0;
+}
+
+.chat-bubble.local::after {
+    content: "";
+    position: absolute;
+    right: -10px;
+    top: 12px;
+    width: 0;
+    height: 0;
+    border-left: 10px solid #90caf9;
+    border-top: 10px solid transparent;
+    border-bottom: 10px solid transparent;
+}
+
+/* 봇 메시지 (왼쪽) */
+.chat-bubble.remote {
+    align-self: flex-start;
+    background: #f5f5f5;
+    color: black;
+    border-bottom-left-radius: 0;
+}
+
+.chat-bubble.remote::after {
+    content: "";
+    position: absolute;
+    left: -10px;
+    top: 12px;
+    width: 0;
+    height: 0;
+    border-right: 10px solid #f5f5f5;
+    border-top: 10px solid transparent;
+    border-bottom: 10px solid transparent;
+}

@@ -3,3 +3,8 @@ uvicorn
 httpx
 python-dotenv
 pydantic
+langchain_core
+langchain
+langchain-openai
+grpcio
+grpcio-tools

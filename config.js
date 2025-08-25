@@ -3,6 +3,7 @@ const CONFIG = {
         session: 'http://localhost:8888/session',
         weather: 'http://localhost:8888/weather',
         search: 'http://localhost:8888/search',
+        transcribe: 'http://localhost:8888/transcribe',
         // realtime: 'https://api.openai.com/v1/realtime'
         realtime: 'https://swedencentral.realtimeapi-preview.ai.azure.com/v1/realtimertc'
     },
