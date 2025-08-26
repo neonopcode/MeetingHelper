@@ -1,12 +1,10 @@
 // UI Management
 
-let audioCtx, ws, processor, source;
-
 class UI {
     static elements = {
+        isOpenAgentPanel : false,
         startButton: document.getElementById('startButton'),
         stopButton: document.getElementById('stopButton'),
-        clearButton: document.getElementById('clearButton'),
         panel : document.getElementById('scriptPanel'),
         panelButton : document.getElementById('togglePanel'),
         transcript: document.getElementById('transcript'),
@@ -15,6 +13,13 @@ class UI {
         imageContainer: document.getElementById('imageContainer'),
         localView : document.getElementById('localView'),
         remoteView : document.getElementById('remoteView'),
+        agentPanel : document.getElementById('agentPanel'),
+        agentPanelContent : document.getElementById('panelContent'),
+        answerText : document.getElementById('answerText'),
+        // sourceLinks : document.getElementById('sources'),
+        typing : document.getElementById('typingIndicator'),
+        copyBtn : document.getElementById('copyBtn'),
+        closeBtn : document.getElementById('closeBtn'),
         contentWrapper: document.querySelector('.content-wrapper')
     };
 
@@ -31,6 +36,71 @@ class UI {
         this.elements.error.style.display = 'none';
     }
 
+
+    static openAgentPanel() {
+        this.elements.agentPanel.classList.add('open');
+        this.elements.agentPanel.setAttribute('aria-hidden','false');
+        this.elements.typing.style.display='flex';
+    }
+
+    static async sendQueryAgent(query){
+        try {
+            const agentResponse = await MessageHandler.handelAgentFunction(query);
+            // console.log('agentResponse : ', agentResponse)
+            if(agentResponse){
+                this.elements.answerText.style.display='block';
+                this.updateAgentPanel(agentResponse);
+                // 복사 버튼
+                this.elements.copyBtn.addEventListener('click', () => {
+                    //@Todo copy answers
+                });
+            }
+        } catch(err){
+            this.elements.answerText.textContent = `에러 발생: 응답을 불러오지 못했습니다.${err}`;
+            this.elements.answerText.style.display='block';
+        } finally {
+            this.elements.typing.style.display='none';
+        }
+    }
+
+    static closeAgentPanel() {
+        this.elements.agentPanel.classList.remove('open');
+        this.elements.agentPanel.setAttribute('aria-hidden','true');
+        this.elements.isOpenAgentPanel = false;
+        //초기화
+        this.elements.typing.style.display='none';
+        this.elements.answerText.style.display='none';
+    }
+
+    static updateAgentPanel(res) {
+        const bubble = document.createElement("div");
+        bubble.classList.add("chat-bubble");
+        const bubbleDirection = "remote";
+        bubble.classList.add(bubbleDirection);
+
+        const answerDiv = document.createElement("div");
+        answerDiv.innerText = res.answer;
+        bubble.appendChild(answerDiv);
+
+        // 출처 렌더링
+        if(res.sources && res.sources.length){
+            function escapeHtml(s){
+                return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+            }
+
+            const sourcesDiv = document.createElement("div");
+            sourcesDiv.innerHTML = res.sources.map(s => `• <a href="${s.url}" style="color:#0b1220;text-decoration:underline">${escapeHtml(s.title)}</a>`).join('<br>');
+            bubble.appendChild(sourcesDiv);
+        }
+        // console.log('updateAgentPanel: ',res)
+
+        if (this.elements.answerText.firstChild) {
+            this.elements.answerText.insertBefore(bubble, this.elements.answerText.firstChild);
+        } else {
+            this.elements.answerText.appendChild(bubble);
+        }
+    }
+
     static updateTranscript(message, isLocalRes) {
         const bubble = document.createElement("div");
         bubble.classList.add("chat-bubble");
@@ -38,10 +108,16 @@ class UI {
         bubble.classList.add(bubbleDirection);
         bubble.textContent = message;
 
-        // 클릭 이벤트
         bubble.addEventListener("click", () => {
             console.log(`Clicked sentence: ${message}`);
-            bubble.classList.toggle("active"); // 선택 상태 토글
+            bubble.classList.toggle("active");
+            //agent Panel open
+            if(!this.elements.isOpenAgentPanel) {
+                this.openAgentPanel();
+                this.elements.isOpenAgentPanel = true;
+            }
+            //send query to AI agent
+            this.sendQueryAgent(message);
         });
 
         if (this.elements.transcript.firstChild) {
@@ -51,96 +127,9 @@ class UI {
         }
     }
 
-    static renderTranscript() {
-        //const transcriptDiv = document.getElementById("transcript");
-        const text = this.elements.transcript.innerText ||this.elements.transcript.textContent;
-        this.elements.transcript.innerHTML = ""; // 기존 내용 비우기
-        // 단어별로 쪼개기
-        const words = text.split(" ");
-
-        words.forEach(word => {
-            const span = document.createElement("span");
-            span.textContent = word + " ";
-            span.classList.add("word");
-
-            // 클릭 이벤트
-            span.addEventListener("click", () => {
-                alert(`Clicked: ${word}`);
-
-            });
-
-            this.elements.transcript.appendChild(span);
-        });
-    }
-
-    static clearConversation() {
-        this.elements.transcript.innerHTML = '';
-        this.elements.imageContainer.innerHTML = '';
-        this.elements.contentWrapper.classList.remove('with-image');
-        this.hideError();
-        this.updateStatus('Ready to start');
-        if (map) {
-            map.remove();
-            map = null;
-        }
-    }
-
     static updateButtons(isConnected) {
         this.elements.startButton.disabled = isConnected;
         this.elements.stopButton.disabled = !isConnected;
-    }
-
-    static displayImage(imageUrl, imageSource, query) {
-        const sideContainer = document.querySelector('.side-container');
-        const imageContainer = this.elements.imageContainer;
-        
-        if (!imageUrl) {
-            imageContainer.innerHTML = '';
-            this.elements.contentWrapper.classList.remove('with-image');
-            // Recenter map after layout changes
-            if (map) {
-                setTimeout(() => {
-                    map.invalidateSize();
-                    const center = map.getCenter();
-                    map.setView(center, map.getZoom());
-                }, 100);
-            }
-            return;
-        }
-
-        this.elements.contentWrapper.classList.add('with-image');
-        const imageWrapper = document.createElement('div');
-        imageWrapper.className = 'image-wrapper';
-        
-        const img = document.createElement('img');
-        img.className = 'search-image';
-        img.alt = query;
-        
-        const loadingDiv = document.createElement('div');
-        loadingDiv.textContent = 'Loading image...';
-        loadingDiv.className = 'image-loading';
-        imageWrapper.appendChild(loadingDiv);
-        
-        img.onload = () => {
-            loadingDiv.remove();
-            imageWrapper.appendChild(img);
-            const caption = document.createElement('div');
-            caption.className = 'image-caption';
-            caption.innerHTML = `
-                Image related to: ${query}<br>
-                <a href="${imageSource}" target="_blank">Image source</a>
-            `;
-            imageWrapper.appendChild(caption);
-        };
-        
-        img.onerror = () => {
-            loadingDiv.textContent = 'Failed to load image';
-            loadingDiv.className = 'image-error';
-        };
-        
-        img.src = imageUrl;
-        imageContainer.innerHTML = '';
-        imageContainer.appendChild(imageWrapper);
     }
 }
 
@@ -156,149 +145,18 @@ class ErrorHandler {
 class MessageHandler {
     static async handleTranscript(message, isLocalRes) {
         const transcript = message.transcription.text//message.response?.output?.[0]?.content?.[0]?.transcript;
-        if (transcript) {
+        if (transcript != " ") {
             UI.updateTranscript(transcript, isLocalRes);
         }
     }
 
-    static async handelDeveloperFunction(output){
+    static async handelAgentFunction(query){
         try {
-            const args = JSON.parse(output.arguments);
-            const response = await fetch(`${CONFIG.API_ENDPOINTS.weather}/${encodeURIComponent(args.location)}`);
+            const response = await fetch(`${CONFIG.API_ENDPOINTS.agent}/${query}`);
             const data = await response.json();
+            return data;
         }catch (e) {
-            
-        }
-    }
-
-    static async handleWeatherFunction(output) {
-        try {
-            const args = JSON.parse(output.arguments);
-            const response = await fetch(`${CONFIG.API_ENDPOINTS.weather}/${encodeURIComponent(args.location)}`);
-            const data = await response.json();
-            
-            // Format the current weather information
-            const currentWeather = `Current Weather in ${args.location}:
-${CONFIG.WEATHER_ICONS[data.weather_code] || '🌡️'} ${data.temperature}°${data.unit_temperature}
-• Humidity: ${data.humidity}%
-• Precipitation: ${data.precipitation}${data.unit_precipitation}
-• Wind Speed: ${data.wind_speed}${data.unit_wind}`.trim();
-
-            // Format the forecast information
-            const forecast = data.forecast_daily.map(day => 
-                `${new Date(day.date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}:
-${CONFIG.WEATHER_ICONS[day.weather_code] || '🌡️'} High: ${day.max_temp}°${data.unit_temperature}
-• Low: ${day.min_temp}°${data.unit_temperature}
-• Precipitation: ${day.precipitation}${data.unit_precipitation}`.trim()
-            ).join('\n\n');
-            
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message function-result weather';
-            
-            // Add current weather
-            const currentWeatherDiv = document.createElement('div');
-            currentWeatherDiv.textContent = currentWeather;
-            messageDiv.appendChild(currentWeatherDiv);
-            
-            // Add forecast toggle button
-            const toggleButton = document.createElement('button');
-            toggleButton.className = 'forecast-toggle';
-            toggleButton.textContent = '7-Day Forecast';
-            messageDiv.appendChild(toggleButton);
-            
-            // Add forecast content (hidden by default)
-            const forecastDiv = document.createElement('div');
-            forecastDiv.className = 'forecast-content';
-            forecastDiv.textContent = forecast;
-            messageDiv.appendChild(forecastDiv);
-            
-            // Add click handler for toggle
-            toggleButton.addEventListener('click', () => {
-                toggleButton.classList.toggle('expanded');
-                forecastDiv.classList.toggle('expanded');
-            });
-            
-            if (UI.elements.transcript.firstChild) {
-                UI.elements.transcript.insertBefore(messageDiv, UI.elements.transcript.firstChild);
-            } else {
-                UI.elements.transcript.appendChild(messageDiv);
-            }
-            
-            if (data.latitude && data.longitude) {
-                updateMap(data.latitude, data.longitude, data.location_name);
-            }
-            
-            return {
-                temperature: data.temperature,
-                humidity: data.humidity,
-                precipitation: data.precipitation,
-                wind_speed: data.wind_speed,
-                forecast_daily: data.forecast_daily,
-                current_time: data.current_time,
-                location: args.location,
-                latitude: data.latitude,
-                longitude: data.longitude,
-                location_name: data.location_name
-            };
-        } catch (error) {
-            ErrorHandler.handle(error, 'Weather Function');
-            return "Could not get weather data";
-        }
-    }
-
-    static async handleSearchFunction(output) {
-        try {
-            const args = JSON.parse(output.arguments);
-            const response = await fetch(`${CONFIG.API_ENDPOINTS.search}/${encodeURIComponent(args.query)}`);
-            const data = await response.json();
-            
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message function-result search';
-            
-            const titleDiv = document.createElement('div');
-            titleDiv.className = 'result-title';
-            const titleLink = document.createElement('a');
-            titleLink.href = data.source;
-            titleLink.target = '_blank';
-            titleLink.rel = 'noopener noreferrer';
-            titleLink.textContent = data.title;
-            titleDiv.appendChild(titleLink);
-            
-            const snippetDiv = document.createElement('div');
-            snippetDiv.className = 'result-snippet';
-            snippetDiv.textContent = data.snippet;
-            
-            const sourceDiv = document.createElement('div');
-            sourceDiv.className = 'result-source';
-            const sourceLink = document.createElement('a');
-            sourceLink.href = data.source;
-            sourceLink.target = '_blank';
-            sourceLink.rel = 'noopener noreferrer';
-            sourceLink.textContent = data.source;
-            sourceDiv.appendChild(sourceLink);
-            
-            messageDiv.appendChild(titleDiv);
-            messageDiv.appendChild(snippetDiv);
-            messageDiv.appendChild(sourceDiv);
-            
-            if (UI.elements.transcript.firstChild) {
-                UI.elements.transcript.insertBefore(messageDiv, UI.elements.transcript.firstChild);
-            } else {
-                UI.elements.transcript.appendChild(messageDiv);
-            }
-            
-            UI.displayImage(data.image_url, data.image_source, args.query);
-            
-            return {
-                title: data.title,
-                snippet: data.snippet,
-                source: data.source,
-                image_url: data.image_url,
-                image_source: data.image_source
-            };
-        } catch (error) {
-            ErrorHandler.handle(error, 'Search Function');
-            return "Could not perform search";
+            console.error("No AI agent Response");
         }
     }
 }
@@ -309,9 +167,15 @@ class WebRTCManager {
         this.peerConnection = null;
         this.localStream = null;
         this.remoteStream = null;
-        this.localSTT = new STTHandler(true);
-        //this.remoteSTT = new STTHandler(this, false);
-        //Basic Channel
+        function generateUserId(isLocal) {
+            if(isLocal)
+                return 'user_local' + crypto.randomUUID();
+            return 'user_remote' + crypto.randomUUID();
+        }
+
+        this.localSTT = new STTHandler(generateUserId(true),true);
+        this.remoteSTT = new STTHandler(generateUserId(false),false);
+
         this.signaling = new BroadcastChannel('webrtc');
         this.signaling.onmessage = e => {
             console.log("☎️ signalMessage : ", e.data)
@@ -352,14 +216,14 @@ class WebRTCManager {
 
     async setupLocal() {
         this.localStream = await navigator.mediaDevices.getUserMedia({ audio: {
-            echoCancellation: false,
+            echoCancellation: true,
             noiseSuppression: true,
             voiceIsolation: false,
             autoGainControl: false
         }, video: true});
-        //this.peerConnection.addTrack(this.localStream()[0]);
         if (this.localStream) {
-            STTHandler.handleTranscript(this.localStream, true);
+            if(this.localSTT)
+                this.localSTT.handleTranscript(this.localStream);
             UI.elements.localView.srcObject = this.localStream;
         }
     }
@@ -383,7 +247,8 @@ class WebRTCManager {
             this.remoteStream = e.streams[0];
             console.log("remote stream!")
             if(this.remoteStream) {
-                STTHandler.handleTranscript(this.remoteStream, false);
+                if(this.remoteSTT)
+                    this.remoteSTT.handleTranscript(this.remoteStream);
                 UI.elements.remoteView.srcObject = this.remoteStream;
             }
         }
@@ -416,7 +281,10 @@ class WebRTCManager {
         }
         this.localStream.getTracks().forEach(track => track.stop());
         this.localStream = null;
-        STTHandler.stop();
+        if(this.localSTT)
+            this.localSTT.stop();
+        if(this.remoteSTT)
+            this.remoteSTT.stop();
     };
 
     async handleOffer(offer) {
@@ -467,57 +335,61 @@ class WebRTCManager {
             this.dataChannel.close();
             this.dataChannel = null;
         }
-        STTHandler.stop();
+        if(this.localSTT)
+            this.localSTT.stop();
+        if(this.remoteSTT)
+            this.remoteSTT.stop();
     }
 }
 
 
 class STTHandler {
-    constructor() {
+    constructor(user_id, isLocal) {
         //import websocket
-        ws = new WebSocket(`ws://localhost:8888/ws/stt`);
-        ws.binaryType = 'arraybuffer';
-        ws.onopen = () => {
-            // 첫 메시지: 설정 전송
-            // ws.send(JSON.stringify({
-            //     language: 'ko-KR',
-            //     sample_rate: 16000,
-            //     interim_results: true
-            // }));
+        this.ws = new WebSocket(`${CONFIG.API_ENDPOINTS.transcribe}/${user_id}`);
+        this.ws.binaryType = 'arraybuffer';
+        this.ws.onopen = () => {
         }
-        ws.onmessage = async (ev) => {
+        this.ws.onmessage = async (ev) => {
             try {
                 const data = JSON.parse(ev.data);
-                //const isLocalRes = data.islocal;
                 const res_type = data.responseType[0];
                 if (res_type == "transcription") {
                     // 기본 정보 출력
                     const text = data.transcription.text
-                    if(text != "")
-                        console.log('stt text: ', text, 'isLocal? : ')//,isLocalRes)
-                        await MessageHandler.handleTranscript(data,true);
+                    const position = data.transcription.position
+                    const seqId = data.transcription.seqId
+                    const epdType = data.transcription.epdType
+
+                    if(text) {
+                        await MessageHandler.handleTranscript(data, this.isLocalRes);
+                    }
                 }
             } catch {
                 // 텍스트 외 바이너리 응답은 없음
             }
         };
-        ws.onclose = () => {
-            document.getElementById('status').textContent = 'Status: closed';
+        this.ws.onclose = () => {
         };
+        this.userId = 0;
+        this.audioCtx = null;
+        this.processor = null;
+        this.source = null;
+        this.isLocalRes = isLocal
     }
 
-    static async handleTranscript(stream, isLocal) {
+    handleTranscript(stream) {
         try {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+            this.audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
 
             // 마이크 스트림을 AudioContext에 연결
-            source = audioCtx.createMediaStreamSource(stream);
+            this.source = this.audioCtx.createMediaStreamSource(stream);
 
             // ScriptProcessorNode 생성 (buffer size: 16384, mono: 1) 32000 Byte
-            processor = audioCtx.createScriptProcessor(16384, 1, 1);
+            this.processor = this.audioCtx.createScriptProcessor(16384, 1, 1);
 
             // 오디오 데이터가 들어올 때마다 호출됨
-            processor.onaudioprocess = (e) => {
+            this.processor.onaudioprocess = (e) => {
                 const inputData = e.inputBuffer.getChannelData(0); // float32 PCM
 
                 //Float32Array -> Int16Array 변환 (STT 서버용)
@@ -534,52 +406,23 @@ class STTHandler {
                     return buffer;
                 }
 
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    // ws.send(JSON.stringify({
-                    //     isLocal: isLocal})
-                    // )
-                    ws.send(int16Data); //4096 samples, 16K, 16-int pcm  / 320 KB
-                    //console.log("pcm input byteLen : ", int16Data.byteLength)
+                if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(int16Data);
                 }
             };
-            // Audio Graph 연결
-            source.connect(processor);
-            processor.connect(audioCtx.destination); // 출력 연결 (필수)
+            this.source.connect(this.processor);
+            this.processor.connect(this.audioCtx.destination);
         } catch (e) {
             console.log('🚨', e)
         }
     }
 
-    async handleMessage(event) {
-        try {
-            const message = JSON.parse(event.data);
-            console.log('Received message:', message);
-
-            // if (message.type === 'response.done') {
-            //     await MessageHandler.handleTranscript(message, this.isLocalRes);
-            //     const output = message.response?.output?.[0];
-            //     if (output?.type === 'function_call' && output?.call_id) {
-            //         let result;
-            //         if (output.name === 'get_weather') {
-            //             result = await MessageHandler.handleWeatherFunction(output);
-            //         } else if (output.name === 'search_web') {
-            //             result = await MessageHandler.handleSearchFunction(output);
-            //         } else if (output.name === 'get_developInfo'){
-            //             result = await MessageHandler.handelDeveloperFunction(output);
-            //         }
-            //     }
-            // }
-        } catch (error) {
-            ErrorHandler.handle(error, 'Message Processing');
-        }
-    }
-
-    static stop(){
-        ws.close(1000, "user stopped streaming");
-        // processor.disconnect();
-        // source.disconnect();
-        // processor = null;
-        // source = null;
+    stop(){
+        this.ws.close(1000, "user stopped streaming");
+        this.processor.disconnect();
+        this.source.disconnect();
+        this.processor = null;
+        this.source = null;
     }
 }
 
@@ -587,15 +430,18 @@ class STTHandler {
 class App {
     constructor() {
         this.webrtc = null;
-        this.currentVoice = CONFIG.VOICE;
         this.bindEvents();
     }
 
     bindEvents() {
+        //Call start
         UI.elements.startButton.addEventListener('click', () => this.init());
+        //Call stop
         UI.elements.stopButton.addEventListener('click', () => this.stop());
-        UI.elements.clearButton.addEventListener('click', () => UI.clearConversation());
+        //Open Script Panel
         UI.elements.panelButton.addEventListener('click', () => UI.elements.panel.classList.toggle("open"));
+        //Close AI agent Panel
+        UI.elements.closeBtn.addEventListener('click',()=> UI.closeAgentPanel());
         document.addEventListener('DOMContentLoaded', () => {
             UI.updateStatus('Ready to start');
         });
@@ -630,35 +476,6 @@ class App {
         UI.updateButtons(false);
         UI.updateStatus('Ready to start');
     }
-}
-
-let map = null;
-
-function updateMap(latitude, longitude, locationName) {
-    if (!map) {
-        map = L.map('map').setView([latitude, longitude], 10);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
-    } else {
-        map.setView([latitude, longitude], 10);
-        map.eachLayer((layer) => {
-            if (layer instanceof L.Marker) {
-                map.removeLayer(layer);
-            }
-        });
-    }
-    
-    L.marker([latitude, longitude])
-        .addTo(map)
-        .bindPopup(locationName)
-        .openPopup();
-
-    // Force map to recalculate its container size
-    setTimeout(() => {
-        map.invalidateSize();
-        map.setView([latitude, longitude], 10);
-    }, 100);
 }
 
 // Initialize the application

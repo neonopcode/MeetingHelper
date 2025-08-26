@@ -8,3 +8,8 @@ langchain
 langchain-openai
 grpcio
 grpcio-tools
+datetime
+uuid
+langgraph
+typing
+langchain_chroma

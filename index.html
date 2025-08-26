@@ -40,7 +40,6 @@
         <div class="controls">
             <button id="startButton">Start</button>
             <button id="stopButton" disabled>Stop</button>
-            <button id="clearButton">Leave</button>
             <button class="control-btn btn-panel" id="togglePanel">Script</button>
         </div>
 
@@ -48,13 +47,42 @@
         <div id="error" class="error"></div>
     </div>
 
-    <div class="side-panel" id="scriptPanel">
-        <h3>스크립트</h3>
-        <div id="transcript">
-            <p>실시간 전사 텍스트가 여기에 표시됩니다...</p>
+    <div class="textcontainer">
+        <div class="side-panel" id="scriptPanel">
+            <h3>스크립트</h3>
+            <div id="transcript">
+            </div>
         </div>
-    </div>
+        <aside class="ai-panel" id="agentPanel" aria-hidden="true" aria-labelledby="panelTitle">
+            <div class="ai-panel-header">
+                <h3 id="ai-panelTitle">🤖 AI Agent</h3>
+                <div>
+                    <button class="ai-btn copy" id="copyBtn" title="답변 복사">복사</button>
+                    <button class="ai-btn close" id="closeBtn" aria-label="패널 닫기">닫기</button>
+                </div>
+            </div>
 
+            <div class="ai-panel-content" id="panelContent" role="region" aria-live="polite">
+                <div id="resultArea">
+                    <!-- typing indicator -->
+                    <div class="typing" id="typingIndicator" style="display:none;">
+                        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+                        <div style="margin-left:8px;color:#475569;">Agent가 응답을 생성 중입니다...</div>
+                    </div>
+
+                    <!-- 실제 답변 -->
+                    <div id="answerText" style="display:none;">
+                    </div>
+
+                </div>
+
+                <div class="controls" style="margin-top:12px;">
+                    <button class="ai-btn" id="saveBtn" style="background:#ecfccb;color:#0b1220">회의록에 저장</button>
+                    <button class="ai-btn" id="openInKB" style="background:#e0f2fe;color:#073642">관련 문서 열기</button>
+                </div>
+            </div>
+        </aside>
+    </div>
     <script src="config.js"></script>
     <script src="app.js" type="module"></script>
 </body>

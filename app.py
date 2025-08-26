@@ -5,11 +5,6 @@ import httpx
 from pydantic import BaseModel
 import os
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_openai import ChatOpenAI
 import random
 import json
 import grpc
@@ -19,14 +14,8 @@ from queue import Queue
 import logging
 import asyncio
 from threading import Thread
+from typing import List
 
-
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# Example usage of logger
-logger.info("Logging is set up.")
 
 
 app = FastAPI()
@@ -46,21 +35,36 @@ load_dotenv(override=True)
 
 # Get API key from environment variable
 # OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
-SERPER_API_KEY = os.getenv("SERPER_API_KEY")
-REALTIME_SESSION_URL = os.getenv("REALTIME_SESSION_URL")
-API_HOST = os.getenv("CLOVA_SPEECH_HOST", "clovaspeech-gw.ncloud.com:50051")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY","")
+CLOVA_API_HOST = os.getenv("CLOVA_SPEECH_HOST", "clovaspeech-gw.ncloud.com:50051")
 CLOVA_API_KEY = os.getenv("CLOVA_API_KEY")
 
-# this is the openai url: https://api.openai.com/v1/realtime/sessions
-logger.info(f"REALTIME_SESSION_URL: {REALTIME_SESSION_URL}")
 
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY not found in environment variables")
-# if not SERPER_API_KEY:
-#     raise ValueError("SERPER_API_KEY not found in environment variables")
-if not REALTIME_SESSION_URL:
-    raise ValueError("REALTIME_SESSION_URL not found in environment variables")
+if not CLOVA_API_KEY:
+    raise ValueError("CLOVA_API_KEY not found in environment variables")
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, WebSocket] = {}
+
+    async def connect(self, user_id: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[user_id] = websocket
+
+    def disconnect(self, user_id: str):
+        if user_id in self.active_connections:
+            del self.active_connections[user_id]
+
+    async def send_personal_message(self, user_id: str, message: str):
+        if user_id in self.active_connections:
+            await self.active_connections[user_id].send_text(message)
+
+    async def broadcast(self, message: str):
+        # 모든 연결된 클라이언트에게 메시지 전송
+        for connection in self.active_connections:
+            await connection.send_text(message)
 
 class SessionResponse(BaseModel):
     session_id: str
@@ -89,7 +93,15 @@ class SearchResponse(BaseModel):
     image_source: str | None = None
 
 CHUNK_SIZE = 32000
-AUDIO_QUEUE_MAXSIZE = 100  # optional
+AUDIO_QUEUE_MAXSIZE = 100
+
+connectionManager = ConnectionManager()
+global_channel = grpc.secure_channel(
+    CLOVA_API_HOST,
+    grpc.ssl_channel_credentials()
+)
+global_stub = nest_pb2_grpc.NestServiceStub(global_channel)
+global_metadata = (("authorization", f"Bearer {CLOVA_API_KEY}"),)
 
 # gRPC 요청 생성기 (동기)
 def grpc_request_iter(sync_queue: Queue):
@@ -98,7 +110,13 @@ def grpc_request_iter(sync_queue: Queue):
     yield nest_pb2.NestRequest(
         type=nest_pb2.RequestType.CONFIG,
         config=nest_pb2.NestConfig(
-            config=json.dumps({"transcription": {"language": "ko"}})
+            config=json.dumps({
+                "transcription": {"language": "ko"},
+                "semanticEpd":{
+                    "skipEmptyText":True,
+                    "usePeriodEpd":True
+                }
+            })
         )
     )
 
@@ -130,35 +148,29 @@ def grpc_request_iter(sync_queue: Queue):
             )
 
 # Thread 내에서 실행될 gRPC 호출 함수
-def grpc_stream(sync_queue: Queue, websocket: WebSocket):
-    channel = grpc.secure_channel(
-        API_HOST,
-        grpc.ssl_channel_credentials()
-    )
-    stub = nest_pb2_grpc.NestServiceStub(channel)
-    metadata = (("authorization", f"Bearer {CLOVA_API_KEY}"),)
-    responses = stub.recognize(grpc_request_iter(sync_queue), metadata=metadata)
+def grpc_stream(sync_queue: Queue, user_id: str):
+    global global_stub, global_metadata
+    responses = global_stub.recognize(grpc_request_iter(sync_queue), metadata=global_metadata)
 
     try:
         for response in responses:
-            # print("stt Response:", response.contents)
-            asyncio.run(websocket.send_text(response.contents))  # send to frontend
+            #print("user_id :", user_id," / response : ",response.contents)
+            # send to frontend
+            asyncio.run(connectionManager.send_personal_message(user_id,response.contents))
     except Exception as e:
         print("gRPC Error:", e)
-    finally:
-        print("channel close")
-        channel.close()
 
 # FastAPI WebSocket
-@app.websocket("/ws/stt")
-async def stt_ws(websocket: WebSocket):
-    await websocket.accept()
+@app.websocket("/ws/stt/{user_id}")
+async def stt_ws(websocket: WebSocket, user_id: str):
+    await connectionManager.connect(user_id, websocket)
+    global global_channel
 
     async_audio_queue = asyncio.Queue()
     sync_audio_queue = Queue(maxsize=AUDIO_QUEUE_MAXSIZE)
 
-    # 🧵 gRPC thread 실행
-    grpc_thread = Thread(target=grpc_stream, args=(sync_audio_queue, websocket))
+    print("userID: ", user_id)
+    grpc_thread = Thread(target=grpc_stream, args=(sync_audio_queue, user_id))
     grpc_thread.start()
 
     # 두 큐를 이어주는 비동기 → 동기 브릿지
@@ -185,182 +197,37 @@ async def stt_ws(websocket: WebSocket):
         await async_audio_queue.put(None)
         await bridge_task
         grpc_thread.join()
-
-
-@app.get("/session")
-async def get_session(voice: str = "echo"):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                REALTIME_SESSION_URL,
-                headers={
-                    'Authorization': f'Bearer {OPENAI_API_KEY}',
-                    'Content-Type': 'application/json'
-                },
-                json={
-                    "model": "gpt-4o-realtime-preview",
-                    "voice": voice,
-                    "instructions": """
-                    You are a helpful assistant that can answer questions and help with tasks.
-                    You have access to real-time weather data and web search capabilities.
-                    When asked about the weather, provide the current temperature and humidity. Provide more information when asked.
-                    When asked about a forecast, provide it but say ranging from x to y degrees over the days.
-                    Never answer in markdown format. Plain text only with no markdown.
-                    """
-                }
-            )
-            response.raise_for_status()
-            return response.json()
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error occurred: {e.response.status_code}")
-        return JSONResponse(status_code=e.response.status_code, content={"error": str(e)})
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": "Internal Server Error", "details": str(e)})
-
-@app.get("/weather/{location}")
-async def get_weather(location: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            # Get coordinates for location
-            geocoding_response = await client.get(
-                f"https://geocoding-api.open-meteo.com/v1/search?name={location}&count=1"
-            )
-            geocoding_data = geocoding_response.json()
-            
-            if not geocoding_data.get("results"):
-                return {"error": f"Could not find coordinates for {location}"}
-                
-            lat = geocoding_data["results"][0]["latitude"]
-            lon = geocoding_data["results"][0]["longitude"]
-            location_name = geocoding_data["results"][0]["name"]
-            
-            # Get weather data with more parameters
-            weather_response = await client.get(
-                f"https://api.open-meteo.com/v1/forecast"
-                f"?latitude={lat}&longitude={lon}"
-                f"&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,weather_code"
-                f"&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code"
-                f"&timezone=auto"
-                f"&forecast_days=7"
-            )
-            weather_data = weather_response.json()
-            
-            # Extract current weather
-            current = weather_data["current"]
-            daily = weather_data["daily"]
-            
-            # Create daily forecast array
-            forecast = []
-            for i in range(len(daily["time"])):
-                forecast.append({
-                    "date": daily["time"][i],
-                    "max_temp": daily["temperature_2m_max"][i],
-                    "min_temp": daily["temperature_2m_min"][i],
-                    "precipitation": daily["precipitation_sum"][i],
-                    "weather_code": daily["weather_code"][i]
-                })
-            
-            return WeatherResponse(
-                temperature=current["temperature_2m"],
-                humidity=current["relative_humidity_2m"],
-                precipitation=current["precipitation"],
-                wind_speed=current["wind_speed_10m"],
-                forecast_daily=forecast,
-                current_time=current["time"],
-                latitude=lat,
-                longitude=lon,
-                location_name=location_name,
-                weather_code=current["weather_code"]
-            )
-            
-    except Exception as e:
-        logger.error(f"Error getting weather data: {str(e)}")
-        return JSONResponse(status_code=500, content={"error": f"Could not get weather data: {str(e)}"})
-
+        global_channel.close()
+        connectionManager.disconnect(user_id)
 
 @app.get("/agent/{query}")
 async def agent_answer(query:str):
-    async with httpx.AsyncClient() as client:
-            response = await client.post(
-                REALTIME_SESSION_URL,
-                headers={
-                    'Authorization': f'Bearer {OPENAI_API_KEY}',
-                    'Content-Type': 'application/json'
-                },
-                json={
-                    "model": "gpt-4o-mini",
-                    "voice": voice,
-                    "instructions": """
-                        You are a helpful assistant that can answer questions and help with tasks.
-                        You have access to real-time weather data and web search capabilities.
-                        When asked about the weather, provide the current temperature and humidity. Provide more information when asked.
-                        When asked about a forecast, provide it but say ranging from x to y degrees over the days.
-                        Never answer in markdown format. Plain text only with no markdown.
-                        """
-                }
-            )
-            response.raise_for_status()
-            return response.json()
+    # 1
+    # query에 대한 Lang Graph 기반 에이전트
+    # 상태 기반 워크플로우 구현
+    # 도구 연계 및 의사결정 로직
+    # Human-in-the-loop 또는 적응형 처리
+
+    # 2
+    # query에 대한 고도화된 RAG agent
+    # Adaptive RAG, Self-RAG, CRAG 중 하나 이상
+    # 검색 전략 최적화
+    # 동적 정보 처리
+    print('agent query: ',query)
+    return JSONResponse(
+        status_code=200,
+        content={
+            "answer": "안녕하세요",
+            "sources": [
+                {"url": "https://openai.com", "title": "OpenAI"},
+                {"url": "https://api.ncloud-docs.com", "title": "Ncloud Docs"}
+            ]
+        }
+    )
     # except httpx.HTTPStatusError as e:
-    #     logger.error(f"HTTP error occurred: {e.response.status_code}")
     #     return JSONResponse(status_code=e.response.status_code, content={"error": str(e)})
     # except Exception as e:
     #     return JSONResponse(status_code=500, content={"error": "Internal Server Error", "details": str(e)})
-
-@app.get("/search/{query}")
-async def search_web(query: str):
-    try:
-        async with httpx.AsyncClient() as client:
-            # Get regular search results
-            response = await client.post(
-                "https://google.serper.dev/search",
-                headers={"X-API-KEY": SERPER_API_KEY},
-                json={"q": query}
-            )
-            
-            data = response.json()
-            
-            # Get image search results with larger size
-            image_response = await client.post(
-                "https://google.serper.dev/images",
-                headers={"X-API-KEY": SERPER_API_KEY},
-                json={
-                    "q": query,
-                    "gl": "us",
-                    "hl": "en",
-                    "autocorrect": True
-                }
-            )
-            
-            image_data = image_response.json()
-            
-            if "organic" in data and len(data["organic"]) > 0:
-                result = data["organic"][0]  # Get the first result
-                image_result = None
-                
-                # Find first valid image
-                if "images" in image_data:
-                    for img in image_data["images"]:
-                        if img.get("imageUrl") and (
-                            img["imageUrl"].endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')) or 
-                            'images' in img["imageUrl"].lower()
-                        ):
-                            image_result = img
-                            break
-                
-                return SearchResponse(
-                    title=result.get("title", ""),
-                    snippet=result.get("snippet", ""),
-                    source=result.get("link", ""),
-                    image_url=image_result["imageUrl"] if image_result else None,
-                    image_source=image_result["source"] if image_result else None
-                )
-            else:
-                return {"error": "No results found"}
-                
-    except Exception as e:
-        logger.error(f"Error performing search: {str(e)}")
-        return JSONResponse(status_code=500, content={"error": f"Could not perform search: {str(e)}"})
 
 if __name__ == "__main__":
     import uvicorn

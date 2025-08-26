@@ -1,27 +1,23 @@
-# OpenAI Real-time WebRTC Demo
+# Real-time Meeting Helper Demo
 
-<img src="image.png" width="600" height="400" />
-
-A real-time audio chat application using OpenAI's realtime audio API with WebRTC. Ask about the weather in any location and get real-time responses using Open-Meteo API.
+An advanced RAG agent with LangGraph + LangChain 
+— a demo/production template where clicking a speech bubble in a WebRTC video/audio call triggers context-aware Retrieval → Generation, shown in a user-friendly UI.
 
 **Notes:** 
 
-- work in progress
-- works with OpenAI and Azure OpenAI; by default Azure OpenAI is used
-- for Azure OpenAI, deploy the service in Sweden Central and deploy the gpt-4o-realtime-preview model
-- WebRTC API is in preview
+- The overall structure and code framework of this repository were inspired by[OpenAI Real-time WebRTC Demo](https://github.com/gbaeke/realtime-webrtc.git).
+  We would like to express our gratitude to the authors and the open source community for sharing their work.
 
 Check .env.example for an example .env file.
 
 
 ## Features
 
-- Real-time audio streaming
+- Real-time video/audio streaming
 - Live transcription
-- Weather function integration with Open-Meteo API
-- Google search integration (requires SERPER_API_KEY)
+- AI agent helps conferences run smoothly
 - WebRTC communication
-- FastAPI backend to get a ephemeral session token and to get weather data
+- FastAPI backend to get a STT response & agent answer
 
 ## Setup
 
@@ -37,20 +33,19 @@ Check .env.example for an example .env file.
 
 Notes: 
 
-- Go to https://serper.dev/ and get your API key.
+- This is 
 - Go to https://openai.com and get your API key.
-- Modify app.py to use the OpenAI API instead of the Azure OpenAI key
-- Modify config.js to use the OpenAI realtime endpoint instead of the Azure OpenAI realtime endpoint
-- Modify the model name in the /session endpoint in app.py to use the OpenAI model name instead of the Azure OpenAI model name
-
+- Go to https://api.ncloud-docs.com/docs/ai-application-service-clovaspeech-grpc and get your API key.
 
 
 ## Running
 
 1. Start server: `python app.py`
 2. Open index.html in a browser (Tip: use live server extension for VSCode)
-3. Click Start and allow microphone access
-4. Try asking: "What's the weather like in Amsterdam?"
+3. Click Start and allow microphone & camera access
+4. Click Script Button and See transcriptions in real time
+5. Click a speech bubble to see the AI agent’s description
+
 
 ## Files
 
@@ -59,5 +54,4 @@ Notes:
 - config.js: Configuration for the frontend
 - app.js: Frontend logic
 - requirements.txt: Python dependencies
-- test.http: API endpoint tests
 - .env: Environment variables (create this)
