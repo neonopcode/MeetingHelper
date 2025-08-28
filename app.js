@@ -441,10 +441,12 @@ class STTHandler {
     }
 
     mergeBuffers(buffers) {
-        let length = 0;
-        for (const b of buffers) length += b.length;
-        const merged = new Int16Array(length);
-        let offset = 0;
+        let length =0;
+        let offset =0;
+        for (const b of buffers) {
+            length += b.length;
+        }
+        let merged = new Int16Array(length);
         for (const b of buffers) {
             merged.set(b, offset);
             offset += b.length;
@@ -485,8 +487,8 @@ class STTHandler {
 
 
     stop(){
+        //this.downloadProcessedWav();
         this.ws.close(1000, "user stopped streaming");
-        this.downloadProcessedWav()
         this.processor.disconnect();
         this.source.disconnect();
         this.processor = null;
