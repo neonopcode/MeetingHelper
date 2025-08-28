@@ -173,25 +173,28 @@ class WebRTCManager {
             return 'user_remote' + crypto.randomUUID();
         }
 
+        this.peerId = crypto.randomUUID();
+
         this.localSTT = new STTHandler(generateUserId(true),true);
         this.remoteSTT = new STTHandler(generateUserId(false),false);
 
-        this.signaling = new BroadcastChannel('webrtc');
-        this.signaling.onmessage = e => {
-            console.log("☎️ signalMessage : ", e.data)
+        this.signaling = new WebSocket(`${CONFIG.API_ENDPOINTS.signaling}/${this.peerId}`)//new BroadcastChannel('webrtc');
+        this.signaling.onmessage = async (e) => {
+            const data = JSON.parse(e.data);
+            console.log("☎️ signalMessage : ", data)
             if (!this.localStream) {
                 console.log('not ready yet');
                 return;
             }
-            switch (e.data.type) {
+            switch (data.type) {
                 case 'offer':
-                    this.handleOffer(e.data);
+                    this.handleOffer(data);
                     break;
                 case 'answer':
-                    this.handleAnswer(e.data);
+                    this.handleAnswer(data);
                     break;
                 case 'candidate':
-                    this.handleCandidate(e.data);
+                    this.handleCandidate(data);
                     break;
                 case 'ready':
                     // A second tab joined. This tab will initiate a call unless in a call already.
@@ -238,7 +241,7 @@ class WebRTCManager {
                     sdpMid: e.candidate.sdpMid,
                     sdpMLineIndex: e.candidate.sdpMLineIndex
                 };
-                this.signaling.postMessage(message);
+                this.signaling.send(JSON.stringify(message));
             }else{
                 console.log("☎️ candidates? ",e)
             }
@@ -258,11 +261,13 @@ class WebRTCManager {
     }
 
     start(){
-        this.signaling.postMessage({type: 'ready'});
+        // this.signaling.postMessage({type: 'ready'});
+        this.signaling.send(JSON.stringify({type: 'ready'}));
     }
 
     stop(){
-        this.signaling.postMessage({type: 'bye'});
+        // this.signaling.postMessage({type: 'bye'});
+        this.signaling.send(JSON.stringify({type: 'bye'}));
     }
 
     async makeCall() {
@@ -270,7 +275,7 @@ class WebRTCManager {
         await this.createPeerConnection();
         console.log("☎️ createOffer")
         const offer = await this.peerConnection.createOffer();
-        this.signaling.postMessage({type: 'offer', sdp: offer.sdp});
+        this.signaling.send(JSON.stringify({type: 'offer', sdp: offer.sdp}));
         await this.peerConnection.setLocalDescription(offer);
     }
 
@@ -297,7 +302,7 @@ class WebRTCManager {
         await this.peerConnection.setRemoteDescription(offer);
 
         const answer = await this.peerConnection.createAnswer();
-        this.signaling.postMessage({type: 'answer', sdp: answer.sdp});
+        this.signaling.send(JSON.stringify({type: 'answer', sdp: answer.sdp}));
         await this.peerConnection.setLocalDescription(answer);
     }
 
