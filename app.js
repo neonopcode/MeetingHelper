@@ -221,7 +221,7 @@ class WebRTCManager {
 
     async setupLocal() {
         this.localStream = await navigator.mediaDevices.getUserMedia({ audio: {
-            echoCancellation: true,
+            echoCancellation: false,
             noiseSuppression: true,
             voiceIsolation: false,
             autoGainControl: false
@@ -259,7 +259,9 @@ class WebRTCManager {
         }
 
         if(this.localStream)
-            this.localStream.getTracks().forEach(track => this.peerConnection.addTrack(track, this.localStream));
+            this.localStream.getTracks().forEach(track =>
+                this.peerConnection.addTrack(track, this.localStream)
+            );
     }
 
     start(){
@@ -299,7 +301,7 @@ class WebRTCManager {
         //     console.error('existing peerconnection');
         //     return;
         // }
-        if (this.peerConnection == null)
+        if (!this.peerConnection)
             await this.createPeerConnection();
         console.log("☎️ handleOffer")
         await this.peerConnection.setRemoteDescription(offer);
