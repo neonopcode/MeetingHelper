@@ -249,9 +249,9 @@ class WebRTCManager {
             }
         };
         this.peerConnection.ontrack = async e => {
-            this.remoteStream = e.streams[0];
-            // console.log("remote stream!")
-            if(this.remoteStream) {
+            if(!this.remoteStream) {
+                console.log("remote stream!")
+                this.remoteStream = e.streams[0];
                 if(this.remoteSTT)
                     this.remoteSTT.handleTranscript(this.remoteStream);
                 UI.elements.remoteView.srcObject = this.remoteStream;
@@ -416,8 +416,8 @@ class STTHandler {
                     }
                     return buffer;
                 }
-
-                this.processedBuffers.push(int16Data);
+                const int16Array = new Int16Array(int16Data); // ArrayBuffer를 Int16Array로 변환
+                this.processedBuffers.push(int16Array);
 
                 if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                     this.ws.send(int16Data);
