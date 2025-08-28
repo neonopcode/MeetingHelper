@@ -1,7 +1,7 @@
 const CONFIG = {
     API_ENDPOINTS: {
-        transcribe: 'ws://localhost:8888/ws/stt',
-        agent: 'http://localhost:8888/agent'
+        transcribe: 'wss://172.23.112.189:8888/ws/stt',
+        agent: 'https://172.23.112.189:8888/agent'
     }
 };
 
