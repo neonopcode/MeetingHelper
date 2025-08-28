@@ -45,6 +45,7 @@ class UI {
 
     static async sendQueryAgent(query){
         try {
+            this.elements.typing.style.display='flex';
             const agentResponse = await MessageHandler.handelAgentFunction(query);
             // console.log('agentResponse : ', agentResponse)
             if(agentResponse){
@@ -146,7 +147,7 @@ class MessageHandler {
     static async handleTranscript(message, isLocalRes) {
         const transcript = message//message.response?.output?.[0]?.content?.[0]?.transcript;
         if (transcript != " ") {
-            UI.updateTranscript(transcript, isLocalRes);
+            await UI.updateTranscript(transcript, isLocalRes);
         }
     }
 

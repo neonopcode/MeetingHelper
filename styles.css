@@ -408,9 +408,10 @@ h1 {
 .side-panel.open {
     /*width: 300px;*/
     /*padding: 10px;*/
-    width: 50%;
+    width: 70%;
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
 }
 
 .word {
@@ -492,7 +493,8 @@ h1 {
 }
 
 .ai-panel.open {
-    width:50%;
+    width:30%;
+    overflow-y: auto;
 }
 
 .ai-panel-header {
