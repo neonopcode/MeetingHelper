@@ -144,7 +144,7 @@ class ErrorHandler {
 // Message Handler
 class MessageHandler {
     static async handleTranscript(message, isLocalRes) {
-        const transcript = message.transcription.text//message.response?.output?.[0]?.content?.[0]?.transcript;
+        const transcript = message//message.response?.output?.[0]?.content?.[0]?.transcript;
         if (transcript != " ") {
             UI.updateTranscript(transcript, isLocalRes);
         }
@@ -177,6 +177,7 @@ class WebRTCManager {
 
         this.localSTT = new STTHandler(generateUserId(true),true);
         this.remoteSTT = new STTHandler(generateUserId(false),false);
+        this.isremoteAudioStream = true;
 
         this.signaling = new WebSocket(`${CONFIG.API_ENDPOINTS.signaling}/${this.peerId}`)//new BroadcastChannel('webrtc');
         this.signaling.onopen = () => {
@@ -227,6 +228,7 @@ class WebRTCManager {
             autoGainControl: false
         }, video: true});
         if (this.localStream) {
+            console.log("localStream")
             if(this.localSTT)
                 this.localSTT.handleTranscript(this.localStream);
             UI.elements.localView.srcObject = this.localStream;
@@ -249,13 +251,14 @@ class WebRTCManager {
             }
         };
         this.peerConnection.ontrack = async e => {
-            if(!this.remoteStream) {
+            this.remoteStream = e.streams[0];
+            if(this.isremoteAudioStream) {
                 console.log("remote stream!")
-                this.remoteStream = e.streams[0];
                 if(this.remoteSTT)
                     this.remoteSTT.handleTranscript(this.remoteStream);
-                UI.elements.remoteView.srcObject = this.remoteStream;
+                this.isremoteAudioStream = false;
             }
+            UI.elements.remoteView.srcObject = this.remoteStream;
         }
 
         if(this.localStream)
@@ -360,6 +363,7 @@ class STTHandler {
         this.ws.binaryType = 'arraybuffer';
         this.ws.onopen = () => {
         }
+        this.msg = ""
         this.ws.onmessage = async (ev) => {
             try {
                 const data = JSON.parse(ev.data);
@@ -368,11 +372,22 @@ class STTHandler {
                     // 기본 정보 출력
                     const text = data.transcription.text
                     const position = data.transcription.position
-                    const seqId = data.transcription.seqId
-                    const epdType = data.transcription.epdType
+                    const epdType = data.transcription?.epdType ||
+                        data.epdType ||
+                        data.transcription?.epd_type ||
+                        data.endpoint?.type ||
+                        "unknown";
 
-                    if(text) {
-                        await MessageHandler.handleTranscript(data, this.isLocalRes);
+                    //console.log("stt 결과:", text," / ", data, " / ",epdType);
+                    //문장 단위 update
+                    if(text && epdType === "durationThreshold") {
+                        this.msg += text;
+                    }
+                    if(text && epdType === "period"){
+                        this.msg += text;
+                        console.log("UI update! :",this.msg);
+                        await MessageHandler.handleTranscript(this.msg, this.isLocalRes);
+                        this.msg = "";
                     }
                 }
             } catch {

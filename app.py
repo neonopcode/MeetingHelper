@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 import random
 import json
 import grpc
+from starlette.websockets import WebSocketDisconnect
+
 import nest_pb2
 import nest_pb2_grpc
 from queue import Queue
@@ -62,9 +64,21 @@ class ConnectionManager:
         if user_id in self.active_connections:
             await self.active_connections[user_id].send_text(message)
 
+    async def send_signal_message(self, peer_id: str, message: str):
+        if peer_id in self.active_connections:
+            await self.active_connections[peer_id].send_json(message)
+
+    async def broadcast_except_mine(self, peer_id:str, message: str):
+        # 전송 주체를 제외한 모든 연결된 클라이언트에게 메시지 전송
+        for pId, connection in self.active_connections.items():
+            #print("broadCast : ",pId, " send from : " ,peer_id, '/ ','user' not in pId,' / ', pId != peer_id)
+            if('user' not in pId and pId != peer_id):
+                # print("broadCast : ",pId, " send from : " ,peer_id)
+                await connection.send_json(message)
+
     async def broadcast(self, message: str):
         # 모든 연결된 클라이언트에게 메시지 전송
-        for connection in self.active_connections:
+        for pId, connection in self.active_connections.items():
             await connection.send_text(message)
 
 class SessionResponse(BaseModel):
@@ -105,7 +119,7 @@ global_stub = nest_pb2_grpc.NestServiceStub(global_channel)
 global_metadata = (("authorization", f"Bearer {CLOVA_API_KEY}"),)
 
 # gRPC 요청 생성기 (동기)
-def grpc_request_iter(sync_queue: Queue):
+def grpc_request_iter(sync_queue: Queue,user_id:str):
     buffer = bytearray()
     # 초기 설정
     yield nest_pb2.NestRequest(
@@ -116,44 +130,31 @@ def grpc_request_iter(sync_queue: Queue):
                 "semanticEpd":{
                     "skipEmptyText":True,
                     "usePeriodEpd":True,
-                    "useWordEpd":True
-                    # "durationThreshold":
+                    "useWordEpd":False
                 }
             })
         )
     )
-
+    # with open(f"pcm/{user_id}_audio.pcm", "wb") as f:
     while True:
         data = sync_queue.get()
         if data is None:
-            if buffer:
-                print("no more data  : ",len(buffer))
-                yield nest_pb2.NestRequest(
-                    type=nest_pb2.RequestType.DATA,
-                    data=nest_pb2.NestData(
-                        chunk=bytes(buffer),
-                        extra_contents=json.dumps({"seqId": 0, "epFlag": True})
-                    )
-                )
             break
 
-        buffer.extend(data)
-        # print("add data : ",len(buffer)) #+ 32768
-        while len(buffer) >= CHUNK_SIZE:
-            chunk = buffer[:CHUNK_SIZE]
-            buffer = buffer[CHUNK_SIZE:]
-            yield nest_pb2.NestRequest(
-                type=nest_pb2.RequestType.DATA,
-                data=nest_pb2.NestData(
-                    chunk=bytes(chunk),
-                    extra_contents=json.dumps({"seqId": 0, "epFlag": False})
-                )
+        # f.write(data)
+
+        yield nest_pb2.NestRequest(
+            type=nest_pb2.RequestType.DATA,
+            data=nest_pb2.NestData(
+                chunk=bytes(data),
+                extra_contents=json.dumps({"seqId": 0, "epFlag": False})
             )
+        )
 
 # Thread 내에서 실행될 gRPC 호출 함수
 def grpc_stream(sync_queue: Queue, user_id: str):
     global global_stub, global_metadata
-    responses = global_stub.recognize(grpc_request_iter(sync_queue), metadata=global_metadata)
+    responses = global_stub.recognize(grpc_request_iter(sync_queue,user_id), metadata=global_metadata)
 
     try:
         for response in responses:
@@ -164,6 +165,24 @@ def grpc_stream(sync_queue: Queue, user_id: str):
         print("gRPC Error:", e)
 
 # FastAPI WebSocket
+@app.websocket("/signal/{peerId}")
+async def signal(websocket: WebSocket,peerId:str):
+    await connectionManager.connect(peerId, websocket)
+
+    try:
+        while True:
+            msg = await websocket.receive()
+            if("text" in msg):
+                data = json.loads(msg["text"])
+                if(data["type"] == 'ready' or data["type"] == 'bye'):
+                    await connectionManager.send_signal_message(peerId, data)
+                else:
+                    await connectionManager.broadcast_except_mine(peerId, data)
+    except WebSocketDisconnect:
+        print("WebSocket disconnected")
+        connectionManager.disconnect(peerId)
+
+
 @app.websocket("/ws/stt/{user_id}")
 async def stt_ws(websocket: WebSocket, user_id: str):
     await connectionManager.connect(user_id, websocket)
@@ -216,27 +235,28 @@ async def agent_answer(query:str):
     # Adaptive RAG, Self-RAG, CRAG 중 하나 이상
     # 검색 전략 최적화
     # 동적 정보 처리
-    print('agent query: ',query)
-    global agent
-    response = agent.getAnswer(query)
-    print('agent response: ',response)
-    return JSONResponse(
-        status_code=200,
-        content={
-            "answer": {response.get('final_response')},
-            "sources": [
-                {
-                    "url": doc.metadata.get("url", ""),
-                    "title": doc.metadata.get("source", "")
-                }
-                for doc in response.get("retrieved_documents", [])
-            ]
-        }
-    )
+    try:
+        print('agent query: ',query)
+        global agent
+        response = agent.getAnswer(query)
+        print('agent response: ',response)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "answer": response.get('final_response'),
+                "sources": [
+                    {
+                        "url": doc.metadata.get("url", ""),
+                        "title": doc.metadata.get("source", "")
+                    }
+                    for doc in response.get("retrieved_documents", [])
+                ]
+            }
+        )
     # except httpx.HTTPStatusError as e:
     #     return JSONResponse(status_code=e.response.status_code, content={"error": str(e)})
-    # except Exception as e:
-    #     return JSONResponse(status_code=500, content={"error": "Internal Server Error", "details": str(e)})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": "Internal Server Error", "details": str(e)})
 
 if __name__ == "__main__":
     import uvicorn
