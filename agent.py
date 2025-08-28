@@ -133,7 +133,7 @@ class Agent:
           주어진 질문을 분석하여 다음 전략 중 하나를 선택하세요:
           1. no_retrieval: 남녀노소 모두가 알고있는 개발과 관련 없는 일반 상식, 간단한 계산 등 설명하는데 검색 불필요한 경우
           2. single_lookup: 현직 개발자에게 설명하기 위해 단순 소프트웨어 개발 용어 정의 1회 검색 필요한 경우
-          3. iterative: 코드 생성을 요청하거나 전문가에게 설명하기 위해 복잡한 분석, 다단계 추론 필요한 경우
+          3. iterative: 코드 생성을 요청하거나 전문가에게 설명하기 위해 극단적으로 복잡한 분석, 다단계 추론 필요한 경우
           """),
       ("user", "{query}")
     ])
@@ -359,6 +359,8 @@ class Agent:
     final_response = ""
     if software_docs:
       final_response += db_responses[-1] + '\n\n'
+    else:
+      final_response += "아무리 찾아도 근거가 없습니다."
 
     return {
       "retrieved_documents": software_docs,

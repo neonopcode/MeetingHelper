@@ -12,4 +12,7 @@ datetime
 uuid
 langgraph
 typing
+typing_extensions
 langchain_chroma
+operator
+docling

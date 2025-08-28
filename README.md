@@ -50,6 +50,8 @@ Notes:
 ## Files
 
 - app.py: FastAPI backend server
+- agent.py: AI agent (DevChat helper)
+- dataLoader.py : save DB
 - index.html: Frontend interface
 - config.js: Configuration for the frontend
 - app.js: Frontend logic
