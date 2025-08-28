@@ -179,6 +179,8 @@ class WebRTCManager {
         this.remoteSTT = new STTHandler(generateUserId(false),false);
 
         this.signaling = new WebSocket(`${CONFIG.API_ENDPOINTS.signaling}/${this.peerId}`)//new BroadcastChannel('webrtc');
+        this.signaling.onopen = () => {
+        }
         this.signaling.onmessage = async (e) => {
             const data = JSON.parse(e.data);
             console.log("☎️ signalMessage : ", data)
@@ -298,7 +300,7 @@ class WebRTCManager {
             return;
         }
         await this.createPeerConnection();
-        console.log("☎️ handleAnswer")
+        console.log("☎️ handleOffer")
         await this.peerConnection.setRemoteDescription(offer);
 
         const answer = await this.peerConnection.createAnswer();
@@ -434,8 +436,9 @@ class STTHandler {
 // Main Application
 class App {
     constructor() {
-        this.webrtc = null;
+        //this.webrtc = null;
         this.bindEvents();
+        this.webrtc = new WebRTCManager(this);
     }
 
     bindEvents() {
@@ -457,8 +460,6 @@ class App {
         
         try {
             UI.updateStatus('Initializing...');
-
-            this.webrtc = new WebRTCManager(this);
             await this.webrtc.setupLocal();
             await this.webrtc.start();
             UI.updateStatus('Connected');
