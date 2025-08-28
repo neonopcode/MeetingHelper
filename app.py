@@ -15,6 +15,7 @@ import logging
 import asyncio
 from threading import Thread
 from typing import List
+from agent import Agent
 
 
 
@@ -31,7 +32,7 @@ app.add_middleware(
 
 # Load environment variables
 load_dotenv(override=True)
-
+agent = Agent()
 
 # Get API key from environment variable
 # OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -114,7 +115,9 @@ def grpc_request_iter(sync_queue: Queue):
                 "transcription": {"language": "ko"},
                 "semanticEpd":{
                     "skipEmptyText":True,
-                    "usePeriodEpd":True
+                    "usePeriodEpd":True,
+                    "useWordEpd":True
+                    # "durationThreshold":
                 }
             })
         )
@@ -214,13 +217,19 @@ async def agent_answer(query:str):
     # 검색 전략 최적화
     # 동적 정보 처리
     print('agent query: ',query)
+    global agent
+    response = agent.getAnswer(query)
+    print('agent response: ',response)
     return JSONResponse(
         status_code=200,
         content={
-            "answer": "안녕하세요",
+            "answer": {response.get('final_response')},
             "sources": [
-                {"url": "https://openai.com", "title": "OpenAI"},
-                {"url": "https://api.ncloud-docs.com", "title": "Ncloud Docs"}
+                {
+                    "url": doc.metadata.get("url", ""),
+                    "title": doc.metadata.get("source", "")
+                }
+                for doc in response.get("retrieved_documents", [])
             ]
         }
     )
@@ -231,4 +240,4 @@ async def agent_answer(query:str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8888)
+    uvicorn.run(app, host="0.0.0.0", port=8888, ssl_keyfile="key.pem", ssl_certfile="cert.pem")
