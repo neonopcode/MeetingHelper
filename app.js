@@ -299,7 +299,7 @@ class WebRTCManager {
         //     console.error('existing peerconnection');
         //     return;
         // }
-        if (this.peerConnection):
+        if (this.peerConnection == null)
             await this.createPeerConnection();
         console.log("☎️ handleOffer")
         await this.peerConnection.setRemoteDescription(offer);
@@ -440,7 +440,6 @@ class App {
         //this.webrtc = null;
         this.bindEvents();
         this.webrtc = new WebRTCManager(this);
-        this.webrtc.start();
     }
 
     bindEvents() {
@@ -463,6 +462,7 @@ class App {
         try {
             UI.updateStatus('Initializing...');
             await this.webrtc.setupLocal();
+            this.webrtc.start();
             UI.updateStatus('Connected');
             UI.updateButtons(true);
             UI.hideError();
