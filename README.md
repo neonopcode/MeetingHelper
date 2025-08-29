@@ -29,6 +29,7 @@ Check .env.example for an example .env file.
 4. Install dependencies: `pip install -r requirements.txt`
 5. Create `.env` file based on `.env.example`
 6. Create `.data/Dev` folder including Dev helper Documents (PDF)
+7. Modify address to your localIP in `config.js` 
 
 
 
@@ -41,8 +42,8 @@ Notes:
 
 ## Running
 
-1. Start server: `python app.py`
-2. Open index.html in a browser (Tip: use live server extension for VSCode)
+1. Start server: `python app.py` (Local Server)
+2. Open index.html in a browser or Open https://neonopcode.github.io/MeetingHelper/
 3. Click Start and allow microphone & camera access
 4. Click Script Button and See transcriptions in real time
 5. Click a speech bubble to see the AI agent’s description
