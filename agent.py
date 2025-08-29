@@ -62,8 +62,14 @@ class Agent:
     # print(f"{target_name} exists? {exists}")
 
     if(not exists):
-      self.dataLoader = DataLoader()
-      self.dataLoader.getLoader()
+      root_dir = "data/Dev"
+
+      for dirpath, dirnames, filenames in os.walk(root_dir):
+        for filename in filenames:
+          print(f"  파일: {filename}")
+          pdf_path = root_dir + "/" + filename
+          self.dataLoader = DataLoader(pdf_path)
+          self.dataLoader.getLoader()
 
     self.embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
     self.c = 7

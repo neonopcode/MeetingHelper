@@ -28,6 +28,7 @@ Check .env.example for an example .env file.
    - Unix/macOS: `source .venv/bin/activate`
 4. Install dependencies: `pip install -r requirements.txt`
 5. Create `.env` file based on `.env.example`
+6. Create `.data/Dev` folder including Dev helper Documents (PDF)
 
 
 
