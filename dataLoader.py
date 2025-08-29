@@ -432,6 +432,7 @@ class DataLoader:
     ]
 
   def create_final_summary(self,state: SummarizationState):
+    global localDB
     """순서를 유지하며 최종 요약 생성"""
     # 인덱스별로 요약을 정렬
     sorted_summaries = sorted(state["summaries"], key=lambda x: x[0])
@@ -453,6 +454,16 @@ class DataLoader:
       response = self.model.invoke(prompt)
       final_summary = response.content
       # DB에 최종 요약 저장
+      if(localDB != None):
+        localDB.add_documents(
+          [
+            Document(
+              page_content=final_summary,
+              metadata={"original": state['content'], "source":state['metadata']}
+            )
+          ]
+        )
+
     except Exception as e:
       final_summary = f"최종 요약 생성 중 오류 발생: {str(e)}"
 
